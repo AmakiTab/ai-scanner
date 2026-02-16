@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Grocery Scanner</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="edge-impulse-standalone.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: white; text-align: center; margin: 0; }
+        #camera { width: 100%; max-width: 500px; border-bottom: 5px solid #4CAF50; }
+        .receipt { padding: 20px; text-align: left; max-width: 500px; margin: auto; }
+        .item { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 10px 0; }
+        #total { font-size: 2em; color: #4CAF50; margin-top: 20px; font-weight: bold; }
+        #status { background: #333; padding: 10px; font-style: italic; color: #aaa; }
+    </style>
+</head>
+<body>
+    <video id="camera" autoplay playsinline></video>
+    <div id="status">Scanning for items...</div>
+    
+    <div class="receipt">
+        <h3>Scanned Items:</h3>
+        <div id="item-list"></div>
+        <div id="total">Total: P0.00</div>
+        <button onclick="location.reload()" style="margin-top:20px; padding:10px; width:100%;">Reset Cart</button>
+    </div>
+
+    <script>
+        let totalCost = 0;
+        const prices = {
+            "Deodorant": 155.00,
+            "Grips": 112.50,
+            "Hot sauce": 94.00,
+            "Power bank": 925.00
+        };
+        let cooldown = false;
+
+        // Note: The specific initialization code depends on the 
+        // JS helper functions inside your exported 'edge-impulse-standalone.js'
+        async function startScanner() {
+            const video = document.getElementById('camera');
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            video.srcObject = stream;
+            
+            // This is where you connect the video frames to your Edge Impulse model
+            // Every few milliseconds, a frame is sent to the classifier
+        }
+
+        function addItem(label) {
+            if (cooldown || !prices[label]) return;
+            
+            totalCost += prices[label];
+            const list = document.getElementById('item-list');
+            list.innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
+            document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
+            
+            cooldown = true;
+            document.getElementById('status').innerText = "Added " + label + "!";
+            setTimeout(() => { cooldown = false; document.getElementById('status').innerText = "Scanning..."; }, 3000);
+        }
+
+        window.onload = startScanner;
+    </script>
+</body>
+</html>
