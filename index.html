@@ -4,6 +4,7 @@
     <title>AI Grocery Scanner</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="edge-impulse-standalone.js"></script>
+    <script src="run-impulse.js"></script>
     <style>
         body { font-family: sans-serif; background: #121212; color: white; text-align: center; margin: 0; }
         #camera { width: 100%; max-width: 500px; border-bottom: 5px solid #4CAF50; }
@@ -15,51 +16,75 @@
 </head>
 <body>
     <video id="camera" autoplay playsinline></video>
-    <div id="status">Scanning for items...</div>
+    <div id="status">Point camera at an item...</div>
     
     <div class="receipt">
         <h3>Scanned Items:</h3>
         <div id="item-list"></div>
         <div id="total">Total: P0.00</div>
-        <button onclick="location.reload()" style="margin-top:20px; padding:10px; width:100%;">Reset Cart</button>
+        <button onclick="location.reload()" style="margin-top:20px; padding:15px; width:100%; background:#444; color:white; border:none; border-radius:5px;">Clear / Reset</button>
     </div>
 
     <script>
         let totalCost = 0;
+        let cooldown = false;
+        
+        // YOUR LABELS
         const prices = {
+            "Hot sauce": 94.00,
             "Deodorant": 155.00,
             "Grips": 112.50,
-            "Hot sauce": 94.00,
             "Power bank": 925.00
         };
-        let cooldown = false;
 
-        // Note: The specific initialization code depends on the 
-        // JS helper functions inside your exported 'edge-impulse-standalone.js'
         async function startScanner() {
-            const video = document.getElementById('camera');
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-            video.srcObject = stream;
-            
-            // This is where you connect the video frames to your Edge Impulse model
-            // Every few milliseconds, a frame is sent to the classifier
+            const status = document.getElementById('status');
+            try {
+                const video = document.getElementById('camera');
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = stream;
+
+                // This connects to the Edge Impulse WebAssembly
+                const classifier = new EdgeImpulseClassifier();
+                await classifier.init();
+
+                setInterval(async () => {
+                    if (cooldown) return;
+                    
+                    const result = await classifier.classify(video);
+                    if (result.classification) {
+                        let topMatch = result.classification.reduce((prev, current) => (prev.value > current.value) ? prev : current);
+
+                        // If it's 70% sure it sees your item
+                        if (topMatch.value > 0.70 && prices[topMatch.label]) {
+                            addItem(topMatch.label);
+                        }
+                    }
+                }, 400); // Check every 400ms
+
+            } catch (err) {
+                status.innerText = "Error: Camera or AI model not loaded.";
+                console.error(err);
+            }
         }
 
         function addItem(label) {
-            if (cooldown || !prices[label]) return;
-            
+            cooldown = true;
             totalCost += prices[label];
+            
             const list = document.getElementById('item-list');
             list.innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
             document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
-            
-            cooldown = true;
-            document.getElementById('status').innerText = "Added " + label + "!";
-            setTimeout(() => { cooldown = false; document.getElementById('status').innerText = "Scanning..."; }, 3000);
+            document.getElementById('status').innerText = "ADDED: " + label.toUpperCase();
+
+            // 3 second pause so it doesn't double-scan
+            setTimeout(() => {
+                cooldown = false;
+                document.getElementById('status').innerText = "Scanning...";
+            }, 3000);
         }
 
         window.onload = startScanner;
     </script>
 </body>
-
 </html>
