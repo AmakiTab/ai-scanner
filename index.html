@@ -7,16 +7,16 @@
     <script src="run-impulse.js"></script>
     <style>
         body { font-family: sans-serif; background: #121212; color: white; text-align: center; margin: 0; }
-        #camera { width: 100%; max-width: 500px; border-bottom: 5px solid #4CAF50; }
+        #camera { width: 100%; max-width: 500px; border-bottom: 5px solid #4CAF50; background: #000; }
         .receipt { padding: 20px; text-align: left; max-width: 500px; margin: auto; }
         .item { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 10px 0; }
         #total { font-size: 2em; color: #4CAF50; margin-top: 20px; font-weight: bold; }
-        #status { background: #333; padding: 10px; font-style: italic; color: #aaa; }
+        #status { background: #333; padding: 10px; font-style: italic; color: #aaa; min-height: 20px; }
     </style>
 </head>
 <body>
     <video id="camera" autoplay playsinline></video>
-    <div id="status">Point camera at an item...</div>
+    <div id="status">Starting camera...</div>
     
     <div class="receipt">
         <h3>Scanned Items:</h3>
@@ -37,20 +37,30 @@
 
     async function startScanner() {
         const video = document.getElementById('camera');
+        const status = document.getElementById('status');
+
         try {
-            // Initialize the Edge Impulse WebAssembly classifier
+            // 1. TURN ON CAMERA FIRST
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" } 
+            });
+            video.srcObject = stream;
+            status.innerText = "Loading AI Model...";
+
+            // 2. INITIALIZE AI
             const classifier = new EdgeImpulseClassifier();
             await classifier.init();
+            status.innerText = "Point camera at an item...";
 
-            // Run classification as fast as possible
+            // 3. START SCANNING LOOP
             async function loop() {
                 if (!cooldown) {
                     const result = await classifier.classify(video);
                     if (result.classification) {
                         let top = result.classification.reduce((p, c) => (p.value > c.value) ? p : c);
                         
-                        // If it matches one of your labels with >60% certainty
-                        if (top.value > 0.60 && prices[top.label]) {
+                        // Detect if confidence is high
+                        if (top.value > 0.70 && prices[top.label]) {
                             addItem(top.label);
                         }
                     }
@@ -58,18 +68,29 @@
                 requestAnimationFrame(loop);
             }
             loop();
+
         } catch (e) {
-            document.getElementById('status').innerText = "AI Model Loading...";
+            console.error(e);
+            status.innerText = "Error: Please allow camera access.";
         }
     }
 
     function addItem(label) {
         cooldown = true;
         totalCost += prices[label];
-        document.getElementById('item-list').innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
+        const list = document.getElementById('item-list');
+        list.innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
         document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
         document.getElementById('status').innerText = "ADDED: " + label;
-        setTimeout(() => { cooldown = false; document.getElementById('status').innerText = "Scanning..."; }, 3000);
+        
+        // 3-second pause to prevent multiple scans of same item
+        setTimeout(() => { 
+            cooldown = false; 
+            document.getElementById('status').innerText = "Scanning..."; 
+        }, 3000);
     }
+
     window.onload = startScanner;
 </script>
+</body>
+</html>
