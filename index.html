@@ -1,84 +1,131 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Debug Scanner</title>
+    <title>AI Scanner - Live Monitor</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="edge-impulse-standalone.js"></script>
     <script src="run-impulse.js"></script>
     <style>
-        body { font-family: sans-serif; background: #121212; color: white; text-align: center; margin: 0; }
-        #camera { width: 100%; max-width: 500px; background: #000; border-bottom: 5px solid #4CAF50; }
-        #status { background: #333; padding: 20px; font-weight: bold; color: #fbff00; min-height: 30px; }
-        #debug-info { color: #888; font-size: 0.8em; margin-top: 10px; }
+        body { font-family: sans-serif; background: #121212; color: white; text-align: center; margin: 0; overflow-x: hidden; }
+        #camera { width: 100%; max-width: 500px; background: #000; display: block; margin: auto; }
+        
+        /* Activity Indicator Bar */
+        #status-container { background: #333; padding: 15px; border-bottom: 2px solid #444; }
+        #status { font-weight: bold; color: #fbff00; font-size: 1.1em; }
+        
+        /* The Pulse Dot (shows the code is running) */
+        .pulse { display: inline-block; width: 10px; height: 10px; background: #4CAF50; border-radius: 50%; margin-right: 8px; }
+        .is-processing { animation: blink 0.5s infinite; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+
+        /* Recognition List */
+        .receipt { padding: 20px; text-align: left; max-width: 500px; margin: auto; }
+        .item-row { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 10px 0; color: #4CAF50; font-weight: bold; }
     </style>
 </head>
 <body>
     <video id="camera" autoplay playsinline></video>
-    <div id="status">Initializing AI Engine...</div>
-    <div id="debug-info">Wait for status to change to "Ready"</div>
     
+    <div id="status-container">
+        <span id="pulse-dot" class="pulse"></span>
+        <span id="status">Waiting for AI Model...</span>
+    </div>
+    
+    <div class="receipt">
+        <h3 style="color: #888;">Recent Identifications:</h3>
+        <div id="item-list"></div>
+        <button onclick="location.reload()" style="width:100%; padding:15px; margin-top:20px; background:#444; color:white; border:none; border-radius:5px;">Clear / Reset</button>
+    </div>
+
     <canvas id="hiddenCanvas" width="320" height="320" style="display:none;"></canvas>
 
     <script>
+        let cooldown = false;
+        const validLabels = ["Deodorant", "Grips", "Hot sauce", "Power bank"];
+
         async function startScanner() {
             const video = document.getElementById('camera');
             const status = document.getElementById('status');
+            const pulse = document.getElementById('pulse-dot');
             const canvas = document.getElementById('hiddenCanvas');
             const ctx = canvas.getContext('2d');
 
             try {
-                // 1. Start Camera
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment" } 
-                });
-                video.srcObject = stream;
-
-                // 2. Wait for AI Model to Load
+                // Initialize the classifier from run-impulse.js [cite: 9]
                 const classifier = new EdgeImpulseClassifier();
-                await classifier.init();
-                status.innerText = "READY: Point at an item";
+                await classifier.init(); [cite: 9]
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = stream;
+                status.innerText = "AI ACTIVE: Scanning...";
+                pulse.classList.add('is-processing');
 
-                // 3. Processing Loop
                 async function loop() {
-                    // Capture a frame from the video
-                    ctx.drawImage(video, 0, 0, 320, 320);
-                    const imageData = ctx.getImageData(0, 0, 320, 320).data;
-                    
-                    // Convert pixels to Float32 format for the AI
-                    const pixels = [];
-                    for (let i = 0; i < imageData.length; i += 4) {
-                        pixels.push(imageData[i], imageData[i+1], imageData[i+2]);
-                    }
+                    if (!cooldown) {
+                        // Prepare the frame [cite: 9]
+                        ctx.drawImage(video, 0, 0, 320, 320);
+                        const imageData = ctx.getImageData(0, 0, 320, 320).data;
+                        
+                        const pixels = [];
+                        for (let i = 0; i < imageData.length; i += 4) {
+                            pixels.push(imageData[i], imageData[i+1], imageData[i+2]);
+                        }
 
-                    // Classify the frame
-                    const result = await classifier.classify(pixels);
-                    
-                    if (result.results && result.results.length > 0) {
-                        // Filter out background and find the best match
-                        let items = result.results.filter(r => r.label !== "Background");
-                        if (items.length > 0) {
-                            let top = items.reduce((a, b) => a.value > b.value ? a : b);
+                        // Run classification [cite: 9]
+                        const result = await classifier.classify(pixels);
+                        
+                        if (result.results && result.results.length > 0) { [cite: 14]
+                            // Filter out "Background" to see what the AI is attempting to find
+                            let items = result.results.filter(r => r.label !== "Background");
                             
-                            // Only show if AI is more than 25% sure
-                            if (top.value > 0.25) {
-                                status.style.color = "#4CAF50";
-                                status.innerText = `MATCH: ${top.label.toUpperCase()} (${(top.value * 100).toFixed(0)}%)`;
+                            if (items.length > 0) {
+                                let top = items.reduce((a, b) => a.value > b.value ? a : b);
+                                
+                                // INDICATOR: Show live confidence percentage
+                                status.innerText = `Thinking: ${top.label} (${(top.value * 100).toFixed(0)}%)`;
+                                status.style.color = top.value > 0.15 ? "#fbff00" : "#888";
+
+                                // Threshold for final recognition
+                                if (top.value > 0.25) {
+                                    handleMatch(top.label);
+                                }
+                            } else {
+                                status.innerText = "Searching for objects...";
+                                status.style.color = "#fbff00";
                             }
-                        } else {
-                            status.style.color = "#fbff00";
-                            status.innerText = "Scanning...";
                         }
                     }
                     requestAnimationFrame(loop);
                 }
-                
-                video.onplay = () => loop();
-
+                video.onplay = loop;
             } catch (e) {
-                status.innerText = "Error: " + e.message;
-                console.error(e);
+                status.innerText = "Error: Check camera permissions";
+                pulse.style.background = "red";
             }
         }
+
+        function handleMatch(label) {
+            cooldown = true;
+            const status = document.getElementById('status');
+            const list = document.getElementById('item-list');
+            
+            // Log the match
+            status.innerText = "MATCH FOUND: " + label.toUpperCase();
+            status.style.color = "#4CAF50";
+            
+            const div = document.createElement('div');
+            div.className = "item-row";
+            div.innerHTML = `<span>${label}</span><span>Detected</span>`;
+            list.prepend(div);
+
+            // Cooldown to prevent multiple triggers for the same item 
+            setTimeout(() => { 
+                cooldown = false; 
+                status.style.color = "#fbff00";
+                status.innerText = "Scanning..."; 
+            }, 3000);
+        }
+
         window.onload = startScanner;
     </script>
 </body>
