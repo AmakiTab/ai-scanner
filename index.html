@@ -28,6 +28,8 @@
     <script>
     let totalCost = 0;
     let cooldown = false;
+
+    // These match your Edge Impulse labels exactly
     const prices = {
         "Hot sauce": 94.00,
         "Deodorant": 155.00,
@@ -40,51 +42,66 @@
         const status = document.getElementById('status');
 
         try {
+            // 1. Start the camera
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: "environment" } 
             });
             video.srcObject = stream;
+            status.innerText = "Initializing AI Model...";
 
+            // 2. Load the Edge Impulse Model
             const classifier = new EdgeImpulseClassifier();
             await classifier.init();
-            status.innerText = "Scanning for objects...";
+            status.innerText = "Ready! Point at an item...";
 
+            // 3. The Scanning Loop
             async function loop() {
                 if (!cooldown) {
                     const result = await classifier.classify(video);
                     
-                    // OBJECT DETECTION uses 'boundingBoxes' instead of 'classification'
+                    // Logic for Object Detection (boundingBoxes)
                     if (result.boundingBoxes && result.boundingBoxes.length > 0) {
-                        // Find the detected object with the highest confidence
-                        let topMatch = result.boundingBoxes.reduce((prev, current) => 
+                        let top = result.boundingBoxes.reduce((prev, current) => 
                             (prev.value > current.value) ? prev : current
                         );
 
-                        if (topMatch.value > 0.60 && prices[topMatch.label]) {
-                            addItem(topMatch.label);
+                        // If confidence is > 60%
+                        if (top.value > 0.60 && prices[top.label]) {
+                            addItem(top.label);
                         }
                     }
                 }
                 requestAnimationFrame(loop);
             }
             loop();
+
         } catch (e) {
-            status.innerText = "Error loading AI model.";
+            console.error(e);
+            status.innerText = "Error: Camera access denied or Model failed.";
         }
     }
 
     function addItem(label) {
         cooldown = true;
         totalCost += prices[label];
-        const list = document.getElementById('item-list');
-        list.innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
-        document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
-        document.getElementById('status').innerText = "FOUND: " + label;
         
+        const list = document.getElementById('item-list');
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'item';
+        itemDiv.innerHTML = `<span>${label}</span><span>P${prices[label].toFixed(2)}</span>`;
+        list.appendChild(itemDiv);
+
+        document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
+        document.getElementById('status').innerText = "ADDED: " + label.toUpperCase();
+        
+        // 3-second pause so it doesn't scan the same bottle twice
         setTimeout(() => { 
             cooldown = false; 
             document.getElementById('status').innerText = "Scanning..."; 
         }, 3000);
     }
+
     window.onload = startScanner;
 </script>
+</body>
+</html>
