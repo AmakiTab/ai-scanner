@@ -26,65 +26,50 @@
     </div>
 
     <script>
-        let totalCost = 0;
-        let cooldown = false;
-        
-        // YOUR LABELS
-        const prices = {
-            "Hot sauce": 94.00,
-            "Deodorant": 155.00,
-            "Grips": 112.50,
-            "Power bank": 925.00
-        };
+    let totalCost = 0;
+    let cooldown = false;
+    const prices = {
+        "Hot sauce": 94.00,
+        "Deodorant": 155.00,
+        "Grips": 112.50,
+        "Power bank": 925.00
+    };
 
-        async function startScanner() {
-            const status = document.getElementById('status');
-            try {
-                const video = document.getElementById('camera');
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-                video.srcObject = stream;
+    async function startScanner() {
+        const video = document.getElementById('camera');
+        try {
+            // Initialize the Edge Impulse WebAssembly classifier
+            const classifier = new EdgeImpulseClassifier();
+            await classifier.init();
 
-                // This connects to the Edge Impulse WebAssembly
-                const classifier = new EdgeImpulseClassifier();
-                await classifier.init();
-
-                setInterval(async () => {
-                    if (cooldown) return;
-                    
+            // Run classification as fast as possible
+            async function loop() {
+                if (!cooldown) {
                     const result = await classifier.classify(video);
                     if (result.classification) {
-                        let topMatch = result.classification.reduce((prev, current) => (prev.value > current.value) ? prev : current);
-
-                        // If it's 70% sure it sees your item
-                        if (topMatch.value > 0.70 && prices[topMatch.label]) {
-                            addItem(topMatch.label);
+                        let top = result.classification.reduce((p, c) => (p.value > c.value) ? p : c);
+                        
+                        // If it matches one of your labels with >60% certainty
+                        if (top.value > 0.60 && prices[top.label]) {
+                            addItem(top.label);
                         }
                     }
-                }, 400); // Check every 400ms
-
-            } catch (err) {
-                status.innerText = "Error: Camera or AI model not loaded.";
-                console.error(err);
+                }
+                requestAnimationFrame(loop);
             }
+            loop();
+        } catch (e) {
+            document.getElementById('status').innerText = "AI Model Loading...";
         }
+    }
 
-        function addItem(label) {
-            cooldown = true;
-            totalCost += prices[label];
-            
-            const list = document.getElementById('item-list');
-            list.innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
-            document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
-            document.getElementById('status').innerText = "ADDED: " + label.toUpperCase();
-
-            // 3 second pause so it doesn't double-scan
-            setTimeout(() => {
-                cooldown = false;
-                document.getElementById('status').innerText = "Scanning...";
-            }, 3000);
-        }
-
-        window.onload = startScanner;
-    </script>
-</body>
-</html>
+    function addItem(label) {
+        cooldown = true;
+        totalCost += prices[label];
+        document.getElementById('item-list').innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
+        document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
+        document.getElementById('status').innerText = "ADDED: " + label;
+        setTimeout(() => { cooldown = false; document.getElementById('status').innerText = "Scanning..."; }, 3000);
+    }
+    window.onload = startScanner;
+</script>
