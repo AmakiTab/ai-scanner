@@ -60,7 +60,7 @@
                         let top = result.classification.reduce((p, c) => (p.value > c.value) ? p : c);
                         
                         // Detect if confidence is high
-                        if (top.value > 0.70 && prices[top.label]) {
+                        if (top.value > 0.10 && prices[top.label]) {
                             addItem(top.label);
                         }
                     }
@@ -94,3 +94,4 @@
 </script>
 </body>
 </html>
+
