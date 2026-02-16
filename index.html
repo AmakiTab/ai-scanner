@@ -40,38 +40,36 @@
         const status = document.getElementById('status');
 
         try {
-            // 1. TURN ON CAMERA FIRST
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: "environment" } 
             });
             video.srcObject = stream;
-            status.innerText = "Loading AI Model...";
 
-            // 2. INITIALIZE AI
             const classifier = new EdgeImpulseClassifier();
             await classifier.init();
-            status.innerText = "Point camera at an item...";
+            status.innerText = "Scanning for objects...";
 
-            // 3. START SCANNING LOOP
             async function loop() {
                 if (!cooldown) {
                     const result = await classifier.classify(video);
-                    if (result.classification) {
-                        let top = result.classification.reduce((p, c) => (p.value > c.value) ? p : c);
-                        
-                        // Detect if confidence is high
-                        if (top.value > 0.10 && prices[top.label]) {
-                            addItem(top.label);
+                    
+                    // OBJECT DETECTION uses 'boundingBoxes' instead of 'classification'
+                    if (result.boundingBoxes && result.boundingBoxes.length > 0) {
+                        // Find the detected object with the highest confidence
+                        let topMatch = result.boundingBoxes.reduce((prev, current) => 
+                            (prev.value > current.value) ? prev : current
+                        );
+
+                        if (topMatch.value > 0.60 && prices[topMatch.label]) {
+                            addItem(topMatch.label);
                         }
                     }
                 }
                 requestAnimationFrame(loop);
             }
             loop();
-
         } catch (e) {
-            console.error(e);
-            status.innerText = "Error: Please allow camera access.";
+            status.innerText = "Error loading AI model.";
         }
     }
 
@@ -81,17 +79,12 @@
         const list = document.getElementById('item-list');
         list.innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
         document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
-        document.getElementById('status').innerText = "ADDED: " + label;
+        document.getElementById('status').innerText = "FOUND: " + label;
         
-        // 3-second pause to prevent multiple scans of same item
         setTimeout(() => { 
             cooldown = false; 
             document.getElementById('status').innerText = "Scanning..."; 
         }, 3000);
     }
-
     window.onload = startScanner;
 </script>
-</body>
-</html>
-
