@@ -1,37 +1,11 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>AI Grocery Scanner</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="edge-impulse-standalone.js"></script>
-    <script src="run-impulse.js"></script>
-    <style>
-        body { font-family: sans-serif; background: #121212; color: white; text-align: center; margin: 0; }
-        #camera { width: 100%; max-width: 500px; border-bottom: 5px solid #4CAF50; background: #000; }
-        .receipt { padding: 20px; text-align: left; max-width: 500px; margin: auto; }
-        .item { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 10px 0; }
-        #total { font-size: 2em; color: #4CAF50; margin-top: 20px; font-weight: bold; }
-        #status { background: #333; padding: 10px; font-weight: bold; color: #fbff00; min-height: 20px; }
-    </style>
-</head>
-<body>
-    <video id="camera" autoplay playsinline></video>
-    <div id="status">Starting camera...</div>
-    
-    <div class="receipt">
-        <div id="total">Total: P0.00</div>
-        <h3>Scanned Items:</h3>
-        <div id="item-list"></div>
-        <button onclick="location.reload()" style="margin-top:20px; padding:15px; width:100%; background:#444; color:white; border:none; border-radius:5px;">Clear / Reset</button>
-    </div>
-
-    <script>
+<script src="edge-impulse-standalone.js"></script>
+<script src="run-impulse.js"></script> <script>
     let totalCost = 0;
     let cooldown = false;
     const prices = {
-        "Hot sauce": 94.00,
         "Deodorant": 155.00,
         "Grips": 112.50,
+        "Hot sauce": 94.00,
         "Power bank": 925.00
     };
 
@@ -40,47 +14,73 @@
         const status = document.getElementById('status');
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            // 1. Initialize Camera
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" } 
+            });
             video.srcObject = stream;
 
+            // 2. Initialize the AI Classifier from run-impulse.js
             const classifier = new EdgeImpulseClassifier();
             await classifier.init();
-            status.innerText = "Ready! Scan an item...";
+            status.innerText = "Model Ready - Point at item";
 
-            async function loop() {
+            // 3. The Processing Loop
+            async function processFrame() {
                 if (!cooldown) {
-                    const result = await classifier.classify(video);
-                    if (result.boundingBoxes && result.boundingBoxes.length > 0) {
-                        // Filter out "Background" and find the best item match
-                        let validItems = result.boundingBoxes.filter(obj => obj.label !== "Background");
-                        if (validItems.length > 0) {
-                            let top = validItems.reduce((p, c) => (p.value > c.value) ? p : c);
-                            
-                            // Log what it sees to the status bar for debugging
-                            status.innerText = `Seeing: ${top.label} (${(top.value * 100).toFixed(0)}%)`;
+                    // This is a simplified capture; depending on your model, 
+                    // you may need to draw the video to a canvas to get pixel data.
+                    // For now, we attempt to classify the video element directly.
+                    try {
+                        const result = await classifier.classify(video);
+                        
+                        if (result.results && result.results.length > 0) {
+                            // Find the label with the highest confidence
+                            let top = result.results.reduce((prev, current) => 
+                                (prev.value > current.value) ? prev : current
+                            );
 
-                            // Trigger if confidence is > 15%
-                            if (top.value > 0.15 && prices[top.label]) {
-                                addItem(top.label);
+                            // Trigger if it's not Background and confidence > 0.20
+                            if (top.label !== "Background" && top.value > 0.20) {
+                                status.innerText = `Seeing: ${top.label} (${(top.value * 100).toFixed(0)}%)`;
+                                if (prices[top.label]) {
+                                    addItem(top.label);
+                                }
                             }
                         }
+                    } catch (e) {
+                        // Some browsers require canvas processing before classification
+                        console.error("Classification error:", e);
                     }
                 }
-                requestAnimationFrame(loop);
+                requestAnimationFrame(processFrame);
             }
-            loop();
-        } catch (e) { status.innerText = "Camera Error"; }
+            
+            video.onloadeddata = () => {
+                processFrame();
+            };
+
+        } catch (err) {
+            status.innerText = "Error: Camera access denied.";
+            console.error(err);
+        }
     }
 
     function addItem(label) {
+        if (cooldown) return;
         cooldown = true;
+        
         totalCost += prices[label];
-        document.getElementById('item-list').innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
+        const list = document.getElementById('item-list');
+        list.innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
         document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
-        document.getElementById('status').innerText = "ADDED: " + label.toUpperCase();
-        setTimeout(() => { cooldown = false; document.getElementById('status').innerText = "Scanning..."; }, 3000);
+        document.getElementById('status').innerText = "Added " + label + "!";
+
+        setTimeout(() => { 
+            cooldown = false; 
+            document.getElementById('status').innerText = "Scanning..."; 
+        }, 3000);
     }
+
     window.onload = startScanner;
 </script>
-</body>
-</html>
