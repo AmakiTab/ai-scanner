@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Grocery Scanner - Debug Mode</title>
+    <title>AI Grocery Scanner</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="edge-impulse-standalone.js"></script>
     <script src="run-impulse.js"></script>
@@ -11,27 +11,23 @@
         .receipt { padding: 20px; text-align: left; max-width: 500px; margin: auto; }
         .item { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 10px 0; }
         #total { font-size: 2em; color: #4CAF50; margin-top: 20px; font-weight: bold; }
-        #status { background: #333; padding: 15px; font-weight: bold; color: #fbff00; min-height: 25px; border-bottom: 2px solid #444; }
-        .debug-hint { font-size: 0.8em; color: #888; margin-top: 10px; }
+        #status { background: #333; padding: 10px; font-weight: bold; color: #fbff00; min-height: 20px; }
     </style>
 </head>
 <body>
     <video id="camera" autoplay playsinline></video>
-    <div id="status">Waiting for camera...</div>
+    <div id="status">Starting camera...</div>
     
     <div class="receipt">
         <div id="total">Total: P0.00</div>
         <h3>Scanned Items:</h3>
         <div id="item-list"></div>
         <button onclick="location.reload()" style="margin-top:20px; padding:15px; width:100%; background:#444; color:white; border:none; border-radius:5px;">Clear / Reset</button>
-        <div class="debug-hint">Tip: If % is low, add more light or move item further away.</div>
     </div>
 
     <script>
     let totalCost = 0;
     let cooldown = false;
-
-    // Must match Edge Impulse labels exactly!
     const prices = {
         "Hot sauce": 94.00,
         "Deodorant": 155.00,
@@ -44,74 +40,46 @@
         const status = document.getElementById('status');
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment" } 
-            });
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
             video.srcObject = stream;
-            status.innerText = "Loading AI Model...";
 
             const classifier = new EdgeImpulseClassifier();
             await classifier.init();
-            status.innerText = "Model Ready - Point at item";
+            status.innerText = "Ready! Scan an item...";
 
             async function loop() {
                 if (!cooldown) {
                     const result = await classifier.classify(video);
-                    
                     if (result.boundingBoxes && result.boundingBoxes.length > 0) {
-                        // Ignore the "Background" label
+                        // Filter out "Background" and find the best item match
                         let validItems = result.boundingBoxes.filter(obj => obj.label !== "Background");
-
                         if (validItems.length > 0) {
                             let top = validItems.reduce((p, c) => (p.value > c.value) ? p : c);
                             
-                            // LIVE DEBUG FEEDBACK: Shows what AI sees and how sure it is
+                            // Log what it sees to the status bar for debugging
                             status.innerText = `Seeing: ${top.label} (${(top.value * 100).toFixed(0)}%)`;
 
-                            // Trigger at 20% confidence
-                            if (top.value > 0.20 && prices[top.label]) {
+                            // Trigger if confidence is > 15%
+                            if (top.value > 0.15 && prices[top.label]) {
                                 addItem(top.label);
                             }
-                        } else {
-                            status.innerText = "Only seeing Background...";
                         }
-                    } else {
-                        status.innerText = "Looking for objects...";
                     }
                 }
                 requestAnimationFrame(loop);
             }
             loop();
-
-        } catch (e) {
-            status.innerText = "Error: check camera permissions";
-            console.error(e);
-        }
+        } catch (e) { status.innerText = "Camera Error"; }
     }
 
     function addItem(label) {
         cooldown = true;
         totalCost += prices[label];
-        
-        const list = document.getElementById('item-list');
-        const itemDiv = document.createElement('div');
-        itemDiv.className = 'item';
-        itemDiv.innerHTML = `<span>${label}</span><span>P${prices[label].toFixed(2)}</span>`;
-        list.prepend(itemDiv); // Adds new item to the top of the list
-
+        document.getElementById('item-list').innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
         document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
-        
-        const status = document.getElementById('status');
-        status.style.color = "#4CAF50";
-        status.innerText = "SUCCESS: " + label.toUpperCase();
-        
-        setTimeout(() => { 
-            cooldown = false; 
-            status.style.color = "#fbff00";
-            status.innerText = "Scanning..."; 
-        }, 3000);
+        document.getElementById('status').innerText = "ADDED: " + label.toUpperCase();
+        setTimeout(() => { cooldown = false; document.getElementById('status').innerText = "Scanning..."; }, 3000);
     }
-
     window.onload = startScanner;
 </script>
 </body>
