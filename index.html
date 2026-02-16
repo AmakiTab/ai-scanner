@@ -1,109 +1,75 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Grocery Scanner</title>
+    <title>AI Debug Scanner</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="edge-impulse-standalone.js"></script>
     <script src="run-impulse.js"></script>
     <style>
         body { font-family: sans-serif; background: #121212; color: white; text-align: center; margin: 0; }
-        #camera { width: 100%; max-width: 500px; border-bottom: 5px solid #4CAF50; background: #000; }
-        .receipt { padding: 20px; text-align: left; max-width: 500px; margin: auto; }
-        .item { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 10px 0; }
-        #total { font-size: 2em; color: #4CAF50; margin-top: 20px; font-weight: bold; }
+        #camera { width: 100%; max-width: 500px; background: #000; }
         #status { background: #333; padding: 15px; font-weight: bold; color: #fbff00; }
+        #viewfinder { border: 2px solid #4CAF50; position: fixed; top: 10px; right: 10px; width: 100px; height: 100px; object-fit: cover; }
     </style>
 </head>
 <body>
-    <video id="camera" autoplay playsinline style="width:100%; height:auto;"></video>
-    <div id="status">Loading AI Engine...</div>
+    <video id="camera" autoplay playsinline></video>
+    <canvas id="viewfinder" width="320" height="320"></canvas>
     
-    <div class="receipt">
-        <div id="total">Total: P0.00</div>
-        <h3>Scanned Items:</h3>
-        <div id="item-list"></div>
-        <button onclick="location.reload()" style="margin-top:20px; padding:15px; width:100%; background:#444; color:white; border:none; border-radius:5px;">Reset Scanner</button>
-    </div>
-
-    <canvas id="canvas" width="320" height="320" style="display:none;"></canvas>
+    <div id="status">Starting AI...</div>
+    <div id="results" style="padding: 20px; font-size: 1.5em;"></div>
 
     <script>
-        let totalCost = 0;
-        let cooldown = false;
-        const prices = {
-            "Hot sauce": 94.00,
-            "Deodorant": 155.00,
-            "Grips": 112.50,
-            "Power bank": 925.00
-        };
-
         async function startScanner() {
             const video = document.getElementById('camera');
             const status = document.getElementById('status');
-            const canvas = document.getElementById('canvas');
+            const resultsDiv = document.getElementById('results');
+            const canvas = document.getElementById('viewfinder');
             const ctx = canvas.getContext('2d');
 
             try {
-                // Wait for the AI Module to be ready
-                status.innerText = "Initializing AI...";
                 const classifier = new EdgeImpulseClassifier();
-                await classifier.init();
-
-                // Start Camera
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment" } 
-                });
+                await classifier.init(); [cite: 10]
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }); [cite: 10]
                 video.srcObject = stream;
-                status.innerText = "Model Ready - Point at item";
+                status.innerText = "AI ACTIVE - SCANNING";
 
                 async function loop() {
-                    if (!cooldown) {
-                        // Draw video frame to hidden canvas
-                        ctx.drawImage(video, 0, 0, 320, 320);
-                        const imgData = ctx.getImageData(0, 0, 320, 320);
-                        
-                        // Convert RGB to Float32Array for the classifier
-                        const floatData = new Float32Array(320 * 320 * 3);
-                        for (let i = 0; i < imgData.data.length / 4; i++) {
-                            floatData[i * 3] = imgData.data[i * 4];
-                            floatData[i * 3 + 1] = imgData.data[i * 4 + 1];
-                            floatData[i * 3 + 2] = imgData.data[i * 4 + 2];
-                        }
+                    // 1. Capture and resize for the AI
+                    ctx.drawImage(video, 0, 0, 320, 320);
+                    const imgData = ctx.getImageData(0, 0, 320, 320);
+                    
+                    // 2. Convert pixels to Float32 format (required by run-impulse.js)
+                    const floatData = [];
+                    for (let i = 0; i < imgData.data.length; i += 4) {
+                        floatData.push(imgData.data[i]);     // R
+                        floatData.push(imgData.data[i + 1]); // G
+                        floatData.push(imgData.data[i + 2]); // B
+                    }
 
-                        const result = await classifier.classify(floatData);
-                        
-                        if (result.results && result.results.length > 0) {
-                            let validItems = result.results.filter(obj => obj.label !== "Background");
-                            if (validItems.length > 0) {
-                                let top = validItems.reduce((p, c) => (p.value > c.value) ? p : c);
-                                status.innerText = `Seeing: ${top.label} (${(top.value * 100).toFixed(0)}%)`;
+                    // 3. Classify
+                    const result = await classifier.classify(floatData); [cite: 14]
+                    
+                    if (result.results && result.results.length > 0) {
+                        // Filter out "Background" and show the top match
+                        let match = result.results
+                            .filter(r => r.label !== "Background")
+                            .reduce((prev, current) => (prev.value > current.value) ? prev : current);
 
-                                if (top.value > 0.20 && prices[top.label]) {
-                                    addItem(top.label);
-                                }
-                            }
+                        if (match && match.value > 0.10) { // Very low 10% threshold for testing
+                            status.innerText = `DETECTED: ${match.label.toUpperCase()}`;
+                            resultsDiv.innerHTML = `Identified: <b>${match.label}</b><br>Confidence: ${(match.value * 100).toFixed(1)}%`;
                         }
                     }
                     requestAnimationFrame(loop);
                 }
-                video.addEventListener('play', () => loop());
+                video.onplay = loop;
 
             } catch (e) {
                 status.innerText = "Error: " + e.message;
-                console.error(e);
             }
         }
-
-        function addItem(label) {
-            cooldown = true;
-            totalCost += prices[label];
-            const list = document.getElementById('item-list');
-            list.innerHTML = `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>` + list.innerHTML;
-            document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
-            document.getElementById('status').innerText = "SUCCESS: " + label.toUpperCase();
-            setTimeout(() => { cooldown = false; document.getElementById('status').innerText = "Scanning..."; }, 3000);
-        }
-
         window.onload = startScanner;
     </script>
 </body>
