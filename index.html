@@ -29,7 +29,7 @@
     let totalCost = 0;
     let cooldown = false;
 
-    // These match your Edge Impulse labels exactly
+    // EXACT labels from your Edge Impulse project
     const prices = {
         "Hot sauce": 94.00,
         "Deodorant": 155.00,
@@ -42,32 +42,32 @@
         const status = document.getElementById('status');
 
         try {
-            // 1. Start the camera
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: "environment" } 
             });
             video.srcObject = stream;
-            status.innerText = "Initializing AI Model...";
+            status.innerText = "Loading AI Brain...";
 
-            // 2. Load the Edge Impulse Model
             const classifier = new EdgeImpulseClassifier();
             await classifier.init();
-            status.innerText = "Ready! Point at an item...";
+            status.innerText = "Scanning for items...";
 
-            // 3. The Scanning Loop
             async function loop() {
                 if (!cooldown) {
                     const result = await classifier.classify(video);
                     
-                    // Logic for Object Detection (boundingBoxes)
                     if (result.boundingBoxes && result.boundingBoxes.length > 0) {
-                        let top = result.boundingBoxes.reduce((prev, current) => 
-                            (prev.value > current.value) ? prev : current
-                        );
+                        // 1. FILTER out the "Background" label
+                        let validItems = result.boundingBoxes.filter(obj => obj.label !== "Background");
 
-                        // If confidence is > 60%
-                        if (top.value > 0.60 && prices[top.label]) {
-                            addItem(top.label);
+                        if (validItems.length > 0) {
+                            // 2. Find the highest confidence item
+                            let top = validItems.reduce((p, c) => (p.value > c.value) ? p : c);
+
+                            // 3. Lowered confidence threshold to 0.20
+                            if (top.value > 0.20 && prices[top.label]) {
+                                addItem(top.label);
+                            }
                         }
                     }
                 }
@@ -76,8 +76,8 @@
             loop();
 
         } catch (e) {
+            status.innerText = "Error: Please check camera permissions.";
             console.error(e);
-            status.innerText = "Error: Camera access denied or Model failed.";
         }
     }
 
@@ -86,15 +86,11 @@
         totalCost += prices[label];
         
         const list = document.getElementById('item-list');
-        const itemDiv = document.createElement('div');
-        itemDiv.className = 'item';
-        itemDiv.innerHTML = `<span>${label}</span><span>P${prices[label].toFixed(2)}</span>`;
-        list.appendChild(itemDiv);
-
+        list.innerHTML += `<div class="item"><span>${label}</span><span>P${prices[label].toFixed(2)}</span></div>`;
         document.getElementById('total').innerText = "Total: P" + totalCost.toFixed(2);
         document.getElementById('status').innerText = "ADDED: " + label.toUpperCase();
         
-        // 3-second pause so it doesn't scan the same bottle twice
+        // 3-second pause to prevent duplicate scans
         setTimeout(() => { 
             cooldown = false; 
             document.getElementById('status').innerText = "Scanning..."; 
