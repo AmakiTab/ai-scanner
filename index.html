@@ -111,12 +111,11 @@
                     <span style="color: #666; font-size: 0.8rem;">${time}</span>
                 </div>` + list.innerHTML;
 
-            // 2 second cooldown
-            setTimeout(() => { isPaused = false; }, 2000);
-        }
-
-        window.onload = startApp;
+           // Use this instead of window.onload
+        document.addEventListener('DOMContentLoaded', () => {
+            // Give the deferred scripts 500ms to "settle"
+            setTimeout(startApp, 500);
+        });
     </script>
 </body>
 </html>
-
