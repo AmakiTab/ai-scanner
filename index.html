@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Product Face-ID</title>
+    <title>AI Product Scanner</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="edge-impulse-standalone.js"></script>
     <script src="run-impulse.js"></script>
@@ -10,25 +10,22 @@
         #camera { width: 100%; height: 50vh; object-fit: cover; border-bottom: 2px solid #4CAF50; }
         #status-bar { background: #1a1a1a; padding: 15px; border-bottom: 1px solid #333; }
         #brain-monitor { font-size: 0.8rem; color: #888; font-family: monospace; margin-top: 5px; }
-        .active-label { color: #fbff00; font-weight: bold; }
-        #log { padding: 20px; text-align: left; background: #000; height: 40vh; overflow-y: auto; }
-        .item { background: #222; padding: 10px; margin-bottom: 5px; border-radius: 4px; display: flex; justify-content: space-between; border-left: 5px solid #4CAF50; }
+        .highlight { color: #fbff00; font-weight: bold; }
+        #log { padding: 20px; text-align: left; height: 40vh; overflow-y: auto; background: #000; }
+        .item { background: #1a1a1a; padding: 12px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; border-left: 4px solid #4CAF50; }
         .flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 100; transition: opacity 0.1s; }
     </style>
 </head>
 <body>
     <div id="flash-effect" class="flash"></div>
-    <video id="camera" autoplay playsinline></video>
+    <video id="camera" autoplay playsinline muted></video>
     
     <div id="status-bar">
         <div id="main-status" style="color: #4CAF50; font-weight: bold;">INITIALIZING ENGINE...</div>
         <div id="brain-monitor">AI THINKING: <span id="thinking-text">...</span></div>
     </div>
     
-    <div id="log">
-        <div style="color:#666; font-size: 0.7rem; margin-bottom: 10px;">SCAN HISTORY</div>
-        <div id="item-list"></div>
-    </div>
+    <div id="log"><div id="item-list"></div></div>
 
     <canvas id="hiddenCanvas" width="160" height="160" style="display:none;"></canvas>
 
@@ -44,24 +41,26 @@
             const ctx = canvas.getContext('2d');
 
             try {
-                // Request camera access
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
                 video.srcObject = stream;
 
-                // Wake up the AI Engine
                 const classifier = new EdgeImpulseClassifier();
                 await classifier.init();
                 mainStatus.innerText = "READY: SCAN PRODUCT";
 
                 async function processFrame() {
-                    if (!isPaused) {
+                    if (!isPaused && video.readyState === video.HAVE_ENOUGH_DATA) {
+                        // 1. Capture frame to 160x160 canvas
                         ctx.drawImage(video, 0, 0, 160, 160);
                         const imgData = ctx.getImageData(0, 0, 160, 160).data;
+                        
+                        // 2. Convert RGBA to RGB for the AI
                         const pixels = [];
                         for (let i = 0; i < imgData.length; i += 4) {
                             pixels.push(imgData[i], imgData[i+1], imgData[i+2]);
                         }
 
+                        // 3. Run the AI with the merged debug logic
                         const result = await classifier.classify(pixels);
                         
                         if (result.results && result.results.length > 0) {
@@ -69,13 +68,12 @@
                             let label = top.label.toUpperCase();
                             let score = (top.value * 100).toFixed(0);
 
-                            // Update the thinking feature
-                            thinkingText.innerHTML = `Seeing <span class="active-label">${label}</span> (${score}%)`;
+                            thinkingText.innerHTML = `Seeing <span class="highlight">${label}</span> (${score}%)`;
 
-                            // Trigger scan if it's a product and confidence is high
+                            // Trigger scan if product is detected with high confidence
                             if (label !== "BACKGROUND" && top.value > 0.85) {
                                 if (label !== lastItem) {
-                                    recordScan(label);
+                                    triggerScan(label);
                                 }
                             }
                         }
@@ -83,31 +81,24 @@
                     requestAnimationFrame(processFrame);
                 }
                 video.onplay = processFrame;
-            } catch (err) {
-                mainStatus.innerText = "ERROR: Camera Blocked";
-            }
+            } catch (e) { mainStatus.innerText = "CAMERA ERROR"; }
         }
 
-        function recordScan(label) {
+        function triggerScan(label) {
             isPaused = true;
             lastItem = label;
-            
-            // Visual Flash
             const flash = document.getElementById('flash-effect');
-            flash.style.opacity = "0.8";
-            setTimeout(() => flash.style.opacity = "0", 150);
+            flash.style.opacity = "0.7";
+            setTimeout(() => flash.style.opacity = "0", 100);
 
-            // Add to the list
             const list = document.getElementById('item-list');
             const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             list.innerHTML = `<div class="item"><span>${label}</span><span>${time}</span></div>` + list.innerHTML;
-
-            // Wait 2 seconds before allowing another scan
-            setTimeout(() => { isPaused = false; }, 2000);
+            
+            setTimeout(() => { isPaused = false; }, 2500);
         }
 
-        // Start everything after a brief delay for WASM loading
-        window.onload = () => setTimeout(startApp, 1500);
+        window.onload = () => setTimeout(startApp, 1000);
     </script>
 </body>
 </html>
