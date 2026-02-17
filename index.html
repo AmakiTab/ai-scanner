@@ -1,45 +1,53 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Scanner (Edge Impulse Mode)</title>
+    <title>AI Scanner (Testing Mode)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="edge-impulse-standalone.js"></script>
     <script src="run-impulse.js"></script>
     <style>
-        body { font-family: monospace; background: #000; color: #00ff00; text-align: center; margin: 0; }
-        #camera { width: 100%; height: 40vh; object-fit: cover; filter: brightness(1.2); }
-        .dashboard { padding: 20px; background: #111; border-top: 2px solid #00ff00; }
-        .label-row { display: flex; justify-content: space-between; margin: 10px 0; font-size: 1.2rem; }
-        .bar-bg { background: #333; width: 60%; height: 20px; border-radius: 10px; overflow: hidden; }
-        .bar-fill { background: #00ff00; height: 100%; width: 0%; transition: width 0.1s; }
-        #main-status { font-size: 1.5rem; margin-bottom: 10px; color: white; }
-        .flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 100; }
+        body { font-family: monospace; background: #000; color: #00ff00; text-align: center; margin: 0; overflow: hidden; }
+        #camera { width: 100%; height: 50vh; object-fit: cover; }
+        .ui { padding: 20px; background: #111; height: 50vh; }
+        .bar-container { margin: 15px 0; text-align: left; }
+        .bar-label { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .bar-outer { background: #333; height: 15px; width: 100%; border-radius: 10px; }
+        .bar-inner { background: #00ff00; height: 100%; width: 0%; transition: width 0.1s; }
+        #status { font-size: 1.2rem; margin-bottom: 20px; color: white; border-bottom: 1px solid #333; padding-bottom: 10px; }
     </style>
 </head>
 <body>
-    <div id="flash-effect" class="flash"></div>
     <video id="camera" autoplay playsinline muted></video>
-    
-    <div class="dashboard">
-        <div id="main-status">INITIALIZING...</div>
-        <div id="results-area">
-            <div class="label-row"><span>DEODORANT</span><div class="bar-bg"><div id="bar-DEODORANT" class="bar-fill"></div></div></div>
-            <div class="label-row"><span>HOT SAUCE</span><div class="bar-bg"><div id="bar-HOT_SAUCE" class="bar-fill"></div></div></div>
-            <div class="label-row"><span>BACKGROUND</span><div class="bar-bg"><div id="bar-BACKGROUND" class="bar-fill"></div></div></div>
+    <div class="ui">
+        <div id="status">INITIALIZING AI...</div>
+        
+        <div class="bar-container">
+            <div class="bar-label"><span>DEODORANT</span><span id="val-DEODORANT">0%</span></div>
+            <div class="bar-outer"><div id="bar-DEODORANT" class="bar-inner"></div></div>
+        </div>
+
+        <div class="bar-container">
+            <div class="bar-label"><span>HOT SAUCE</span><span id="val-HOT_SAUCE">0%</span></div>
+            <div class="bar-outer"><div id="bar-HOT_SAUCE" class="bar-inner"></div></div>
+        </div>
+
+        <div class="bar-container">
+            <div class="bar-label"><span>BACKGROUND</span><span id="val-BACKGROUND">0%</span></div>
+            <div class="bar-outer"><div id="bar-BACKGROUND" class="bar-inner"></div></div>
         </div>
     </div>
 
     <canvas id="hiddenCanvas" width="160" height="160" style="display:none;"></canvas>
 
     <script>
-        window.navigator.hardwareConcurrency = 4; // Patch for the LinkError
-        let isPaused = false;
-        let lastItem = "";
+        // Patch for the "hardware_concurrency" LinkError from your console
+        window.navigator.hardwareConcurrency = 4;
 
-        async function start() {
+        async function init() {
             const video = document.getElementById('camera');
             const canvas = document.getElementById('hiddenCanvas');
             const ctx = canvas.getContext('2d');
+            const status = document.getElementById('status');
 
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
@@ -47,49 +55,42 @@
 
                 const classifier = new EdgeImpulseClassifier();
                 await classifier.init();
-                document.getElementById('main-status').innerText = "SYSTEM ONLINE";
+                status.innerText = "SYSTEM READY: POINT AT OBJECT";
 
-                async function loop() {
-                    if (!isPaused && video.readyState === 4) {
+                async function frameLoop() {
+                    if (video.readyState === 4) {
                         ctx.drawImage(video, 0, 0, 160, 160);
-                        const data = ctx.getImageData(0, 0, 160, 160).data;
+                        const imgData = ctx.getImageData(0, 0, 160, 160).data;
+                        
+                        // Convert RGBA to RGB pixels
                         const pixels = [];
-                        for (let i = 0; i < data.length; i += 4) {
-                            pixels.push(data[i], data[i+1], data[i+2]);
+                        for (let i = 0; i < imgData.length; i += 4) {
+                            pixels.push(imgData[i], imgData[i+1], imgData[i+2]);
                         }
 
                         const result = await classifier.classify(pixels);
                         
                         if (result.results) {
                             result.results.forEach(res => {
-                                // Update the Bars like the official link
-                                const bar = document.getElementById(`bar-${res.label.replace(' ', '_')}`);
-                                if (bar) bar.style.width = (res.value * 100) + "%";
-
-                                // Trigger Scan logic
-                                if (res.label !== "BACKGROUND" && res.value > 0.85 && res.label !== lastItem) {
-                                    trigger(res.label);
-                                }
+                                // Update bars and numbers
+                                const barId = "bar-" + res.label.replace(' ', '_');
+                                const valId = "val-" + res.label.replace(' ', '_');
+                                
+                                const barEl = document.getElementById(barId);
+                                const valEl = document.getElementById(valId);
+                                
+                                if (barEl) barEl.style.width = (res.value * 100) + "%";
+                                if (valEl) valEl.innerText = (res.value * 100).toFixed(0) + "%";
                             });
                         }
                     }
-                    requestAnimationFrame(loop);
+                    requestAnimationFrame(frameLoop);
                 }
-                video.onplay = loop;
-            } catch (e) { document.getElementById('main-status').innerText = "CAMERA ERROR"; }
+                video.onplay = frameLoop;
+            } catch (e) { status.innerText = "CAMERA BLOCKED"; }
         }
 
-        function trigger(label) {
-            isPaused = true;
-            lastItem = label;
-            document.getElementById('flash-effect').style.opacity = "0.8";
-            setTimeout(() => {
-                document.getElementById('flash-effect').style.opacity = "0";
-                isPaused = false;
-            }, 2000);
-        }
-
-        window.onload = start;
+        window.onload = () => setTimeout(init, 1000);
     </script>
 </body>
 </html>
