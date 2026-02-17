@@ -1,26 +1,20 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Product Face-ID</title>
+    <title>AI Product Scanner</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="edge-impulse-standalone.js" defer></script>
-<script src="run-impulse.js" defer></script>
+    <script src="edge-impulse-standalone.js"></script>
+    <script src="run-impulse.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; background: #0b0b0b; color: white; text-align: center; margin: 0; overflow: hidden; }
+        body { font-family: sans-serif; background: #000; color: white; text-align: center; margin: 0; }
         #camera { width: 100%; height: 50vh; object-fit: cover; border-bottom: 2px solid #4CAF50; }
         
-        /* The Brain Monitor */
         #status-bar { background: #1a1a1a; padding: 15px; border-bottom: 1px solid #333; }
-        #thinking-box { font-size: 0.8rem; color: #888; margin-top: 5px; font-family: monospace; }
-        .highlight { color: #fbff00; font-weight: bold; }
+        #brain-monitor { font-size: 0.8rem; color: #888; font-family: monospace; margin-top: 5px; }
+        .active-label { color: #fbff00; font-weight: bold; }
 
-        #log { padding: 20px; text-align: left; height: 40vh; overflow-y: auto; background: #000; }
-        .scanned-item { 
-            background: #1a1a1a; padding: 12px; border-radius: 8px; margin-bottom: 8px;
-            display: flex; justify-content: space-between; border-left: 4px solid #4CAF50;
-            animation: slideIn 0.3s ease-out;
-        }
-        @keyframes slideIn { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        #log { padding: 20px; text-align: left; background: #000; height: 40vh; overflow-y: auto; }
+        .item { background: #222; padding: 10px; margin-bottom: 5px; border-radius: 4px; display: flex; justify-content: space-between; border-left: 5px solid #4CAF50; }
         
         .flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 100; transition: opacity 0.1s; }
     </style>
@@ -30,38 +24,41 @@
     <video id="camera" autoplay playsinline></video>
     
     <div id="status-bar">
-        <div id="main-status" style="color: #4CAF50; font-weight: bold;">INITIALIZING AI...</div>
-        <div id="thinking-box">AI BRAIN: <span id="brain-text">Waiting for camera...</span></div>
+        <div id="main-status" style="color: #4CAF50;">INITIALIZING ENGINE...</div>
+        <div id="brain-monitor">AI THINKING: <span id="thinking-text">...</span></div>
     </div>
     
     <div id="log">
-        <div style="color:#555; font-size: 0.7rem; margin-bottom: 10px; letter-spacing: 1px;">RECORDED SESSIONS</div>
+        <div style="color:#666; font-size: 0.7rem; margin-bottom: 10px;">SCAN HISTORY</div>
         <div id="item-list"></div>
     </div>
 
     <canvas id="hiddenCanvas" width="160" height="160" style="display:none;"></canvas>
 
     <script>
-        let lastScannedItem = ""; 
-        let cooldown = false;
+        let lastItem = ""; 
+        let isPaused = false;
 
-        async function init() {
+        async function startApp() {
             const video = document.getElementById('camera');
             const mainStatus = document.getElementById('main-status');
-            const brainText = document.getElementById('brain-text');
+            const thinkingText = document.getElementById('thinking-text');
             const canvas = document.getElementById('hiddenCanvas');
             const ctx = canvas.getContext('2d');
 
             try {
+                // 1. Get Camera
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
                 video.srcObject = stream;
 
+                // 2. Load AI
                 const classifier = new EdgeImpulseClassifier();
                 await classifier.init();
-                mainStatus.innerText = "READY: SCAN PRODUCT FACE";
+                mainStatus.innerText = "READY: POINT AT LABEL";
 
-                async function frameLoop() {
-                    if (!cooldown) {
+                // 3. Process Frames
+                async function processFrame() {
+                    if (!isPaused) {
                         ctx.drawImage(video, 0, 0, 160, 160);
                         const imgData = ctx.getImageData(0, 0, 160, 160).data;
                         const pixels = [];
@@ -72,52 +69,53 @@
                         const result = await classifier.classify(pixels);
                         
                         if (result.results && result.results.length > 0) {
-                            // Sort to find what the AI is "thinking" most
                             let top = result.results.reduce((a, b) => a.value > b.value ? a : b);
-                            let confidence = (top.value * 100).toFixed(1);
                             let label = top.label.toUpperCase();
+                            let score = (top.value * 100).toFixed(0);
 
-                            // FEATURE: THE BRAIN MONITOR
-                            brainText.innerHTML = `Seeing <span class="highlight">${label}</span> (${confidence}%)`;
+                            // Update Brain Monitor
+                            thinkingText.innerHTML = `Seeing <span class="active-label">${label}</span> (${score}%)`;
 
-                            // Trigger Logic
+                            // Trigger logic for ALL CAPS labels from your matrix
                             if (label !== "BACKGROUND" && top.value > 0.85) {
-                                if (label !== lastScannedItem) {
-                                    triggerScan(label);
+                                if (label !== lastItem) {
+                                    recordDiscovery(label);
                                 }
                             }
                         }
                     }
-                    requestAnimationFrame(frameLoop);
+                    requestAnimationFrame(processFrame);
                 }
-                video.onplay = frameLoop;
-            } catch (e) { mainStatus.innerText = "ERROR: ACCESS DENIED"; }
+                video.onplay = processFrame;
+            } catch (err) {
+                mainStatus.innerText = "CAMERA ERROR: Check Permissions";
+                console.error(err);
+            }
         }
 
-        function triggerScan(label) {
-            cooldown = true;
-            lastScannedItem = label;
+        function recordDiscovery(label) {
+            isPaused = true;
+            lastItem = label;
             
-            // Visual Feedback
+            // White Flash Feedback
             const flash = document.getElementById('flash-effect');
-            flash.style.opacity = "0.7";
-            setTimeout(() => flash.style.opacity = "0", 100);
+            flash.style.opacity = "0.8";
+            setTimeout(() => flash.style.opacity = "0", 150);
 
-            // Record New Data
+            // Add to list
             const list = document.getElementById('item-list');
             const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             list.innerHTML = `
-                <div class="scanned-item">
+                <div class="item">
                     <span>${label}</span>
                     <span style="color: #666; font-size: 0.8rem;">${time}</span>
                 </div>` + list.innerHTML;
 
-            // Cooldown prevents double-scans
-            setTimeout(() => { cooldown = false; }, 2000);
+            // 2 second cooldown
+            setTimeout(() => { isPaused = false; }, 2000);
         }
 
-        window.onload = init;
+        window.onload = startApp;
     </script>
 </body>
 </html>
-
