@@ -30,73 +30,84 @@
     <canvas id="hiddenCanvas" width="160" height="160" style="display:none;"></canvas>
 
     <script>
-        // CRITICAL FIX: This stops the "hardware_concurrency" error from your screenshot
-        window.navigator.hardwareConcurrency = window.navigator.hardwareConcurrency || 4;
+    // FIX: This stops the hardware error from your console screenshot
+    window.navigator.hardwareConcurrency = window.navigator.hardwareConcurrency || 4;
 
-        let lastItem = ""; 
-        let isPaused = false;
+    let lastItem = ""; 
+    let isPaused = false;
 
-        async function startApp() {
-            const video = document.getElementById('camera');
-            const mainStatus = document.getElementById('main-status');
-            const thinkingText = document.getElementById('thinking-text');
-            const canvas = document.getElementById('hiddenCanvas');
-            const ctx = canvas.getContext('2d');
+    async function startApp() {
+        const video = document.getElementById('camera');
+        const mainStatus = document.getElementById('main-status');
+        const thinkingText = document.getElementById('thinking-text');
+        const canvas = document.getElementById('hiddenCanvas');
+        const ctx = canvas.getContext('2d');
 
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-                video.srcObject = stream;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            video.srcObject = stream;
 
-                const classifier = new EdgeImpulseClassifier();
-                await classifier.init();
-                mainStatus.innerText = "READY: SCAN PRODUCT";
+            const classifier = new EdgeImpulseClassifier();
+            await classifier.init();
+            mainStatus.innerText = "READY: SCAN PRODUCT";
 
-                async function processFrame() {
-                    if (!isPaused && video.readyState === video.HAVE_ENOUGH_DATA) {
-                        ctx.drawImage(video, 0, 0, 160, 160);
-                        const imgData = ctx.getImageData(0, 0, 160, 160).data;
-                        
-                        const pixels = [];
-                        for (let i = 0; i < imgData.length; i += 4) {
-                            pixels.push(imgData[i], imgData[i+1], imgData[i+2]);
-                        }
+            async function processFrame() {
+                if (!isPaused && video.readyState === video.HAVE_ENOUGH_DATA) {
+                    ctx.drawImage(video, 0, 0, 160, 160);
+                    const imgData = ctx.getImageData(0, 0, 160, 160).data;
+                    
+                    // Convert RGBA to RGB (The AI needs 3 channels, not 4)
+                    const pixels = [];
+                    for (let i = 0; i < imgData.length; i += 4) {
+                        pixels.push(imgData[i], imgData[i+1], imgData[i+2]);
+                    }
 
-                        const result = await classifier.classify(pixels);
-                        
-                        if (result.results && result.results.length > 0) {
-                            let top = result.results.reduce((a, b) => a.value > b.value ? a : b);
-                            let label = top.label.toUpperCase();
-                            let score = (top.value * 100).toFixed(0);
+                    const result = await classifier.classify(pixels);
+                    
+                    if (result.results && result.results.length > 0) {
+                        // Find the highest confidence result
+                        let top = result.results.reduce((a, b) => a.value > b.value ? a : b);
+                        let label = top.label.toUpperCase();
+                        let score = (top.value * 100).toFixed(0);
 
-                            thinkingText.innerHTML = `Seeing <span class="highlight">${label}</span> (${score}%)`;
+                        // Update the UI so you can see what the AI thinks
+                        thinkingText.innerHTML = `Seeing <span class="highlight">${label}</span> (${score}%)`;
 
-                            if (label !== "BACKGROUND" && top.value > 0.85) {
-                                if (label !== lastItem) {
-                                    triggerScan(label);
-                                }
+                        // SCAN TRIGGER: Matches your 100% accuracy labels
+                        if (label !== "BACKGROUND" && top.value > 0.85) {
+                            if (label !== lastItem) {
+                                triggerScan(label);
                             }
                         }
                     }
-                    requestAnimationFrame(processFrame);
                 }
-                video.onplay = processFrame;
-            } catch (e) { mainStatus.innerText = "CAMERA ERROR"; }
+                requestAnimationFrame(processFrame);
+            }
+            video.onplay = processFrame;
+        } catch (e) { 
+            mainStatus.innerText = "CAMERA ERROR"; 
+            console.error(e);
         }
+    }
 
-        function triggerScan(label) {
-            isPaused = true;
-            lastItem = label;
-            const flash = document.getElementById('flash-effect');
-            flash.style.opacity = "0.7";
-            setTimeout(() => flash.style.opacity = "0", 100);
+    function triggerScan(label) {
+        isPaused = true;
+        lastItem = label;
+        
+        // Visual Feedback
+        const flash = document.getElementById('flash-effect');
+        flash.style.opacity = "0.7";
+        setTimeout(() => flash.style.opacity = "0", 100);
 
-            const list = document.getElementById('item-list');
-            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            list.innerHTML = `<div class="item"><span>${label}</span><span>${time}</span></div>` + list.innerHTML;
-            setTimeout(() => { isPaused = false; }, 2500);
-        }
+        // Add to history list
+        const list = document.getElementById('item-list');
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        list.innerHTML = `<div class="item"><span>${label}</span><span>${time}</span></div>` + list.innerHTML;
+        
+        // Wait 3 seconds before next scan
+        setTimeout(() => { isPaused = false; }, 3000);
+    }
 
-        window.onload = () => setTimeout(startApp, 1000);
-    </script>
-</body>
-</html>
+    window.onload = () => setTimeout(startApp, 1000);
+</script>
+
