@@ -71,7 +71,7 @@
                             thinkingText.innerHTML = `Seeing <span class="highlight">${label}</span> (${score}%)`;
 
                             // Trigger scan if product is detected with high confidence
-                            if (label !== "BACKGROUND" && top.value > 0.85) {
+                            if (label !== "BACKGROUND" && top.value > 0.35) {
                                 if (label !== lastItem) {
                                     triggerScan(label);
                                 }
