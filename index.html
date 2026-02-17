@@ -1,113 +1,95 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Product Scanner</title>
+    <title>AI Scanner (Edge Impulse Mode)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="edge-impulse-standalone.js"></script>
     <script src="run-impulse.js"></script>
     <style>
-        body { font-family: sans-serif; background: #000; color: white; text-align: center; margin: 0; }
-        #camera { width: 100%; height: 50vh; object-fit: cover; border-bottom: 2px solid #4CAF50; }
-        #status-bar { background: #1a1a1a; padding: 15px; border-bottom: 1px solid #333; }
-        #brain-monitor { font-size: 0.8rem; color: #888; font-family: monospace; margin-top: 5px; }
-        .highlight { color: #fbff00; font-weight: bold; }
-        #log { padding: 20px; text-align: left; height: 40vh; overflow-y: auto; background: #000; }
-        .item { background: #1a1a1a; padding: 12px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; border-left: 4px solid #4CAF50; }
-        .flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 100; transition: opacity 0.1s; }
+        body { font-family: monospace; background: #000; color: #00ff00; text-align: center; margin: 0; }
+        #camera { width: 100%; height: 40vh; object-fit: cover; filter: brightness(1.2); }
+        .dashboard { padding: 20px; background: #111; border-top: 2px solid #00ff00; }
+        .label-row { display: flex; justify-content: space-between; margin: 10px 0; font-size: 1.2rem; }
+        .bar-bg { background: #333; width: 60%; height: 20px; border-radius: 10px; overflow: hidden; }
+        .bar-fill { background: #00ff00; height: 100%; width: 0%; transition: width 0.1s; }
+        #main-status { font-size: 1.5rem; margin-bottom: 10px; color: white; }
+        .flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 100; }
     </style>
 </head>
 <body>
     <div id="flash-effect" class="flash"></div>
     <video id="camera" autoplay playsinline muted></video>
     
-    <div id="status-bar">
-        <div id="main-status" style="color: #4CAF50; font-weight: bold;">INITIALIZING ENGINE...</div>
-        <div id="brain-monitor">AI THINKING: <span id="thinking-text">...</span></div>
+    <div class="dashboard">
+        <div id="main-status">INITIALIZING...</div>
+        <div id="results-area">
+            <div class="label-row"><span>DEODORANT</span><div class="bar-bg"><div id="bar-DEODORANT" class="bar-fill"></div></div></div>
+            <div class="label-row"><span>HOT SAUCE</span><div class="bar-bg"><div id="bar-HOT_SAUCE" class="bar-fill"></div></div></div>
+            <div class="label-row"><span>BACKGROUND</span><div class="bar-bg"><div id="bar-BACKGROUND" class="bar-fill"></div></div></div>
+        </div>
     </div>
-    
-    <div id="log"><div id="item-list"></div></div>
 
     <canvas id="hiddenCanvas" width="160" height="160" style="display:none;"></canvas>
 
     <script>
-    // FIX: This stops the hardware error from your console screenshot
-    window.navigator.hardwareConcurrency = window.navigator.hardwareConcurrency || 4;
+        window.navigator.hardwareConcurrency = 4; // Patch for the LinkError
+        let isPaused = false;
+        let lastItem = "";
 
-    let lastItem = ""; 
-    let isPaused = false;
+        async function start() {
+            const video = document.getElementById('camera');
+            const canvas = document.getElementById('hiddenCanvas');
+            const ctx = canvas.getContext('2d');
 
-    async function startApp() {
-        const video = document.getElementById('camera');
-        const mainStatus = document.getElementById('main-status');
-        const thinkingText = document.getElementById('thinking-text');
-        const canvas = document.getElementById('hiddenCanvas');
-        const ctx = canvas.getContext('2d');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = stream;
 
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-            video.srcObject = stream;
+                const classifier = new EdgeImpulseClassifier();
+                await classifier.init();
+                document.getElementById('main-status').innerText = "SYSTEM ONLINE";
 
-            const classifier = new EdgeImpulseClassifier();
-            await classifier.init();
-            mainStatus.innerText = "READY: SCAN PRODUCT";
+                async function loop() {
+                    if (!isPaused && video.readyState === 4) {
+                        ctx.drawImage(video, 0, 0, 160, 160);
+                        const data = ctx.getImageData(0, 0, 160, 160).data;
+                        const pixels = [];
+                        for (let i = 0; i < data.length; i += 4) {
+                            pixels.push(data[i], data[i+1], data[i+2]);
+                        }
 
-            async function processFrame() {
-                if (!isPaused && video.readyState === video.HAVE_ENOUGH_DATA) {
-                    ctx.drawImage(video, 0, 0, 160, 160);
-                    const imgData = ctx.getImageData(0, 0, 160, 160).data;
-                    
-                    // Convert RGBA to RGB (The AI needs 3 channels, not 4)
-                    const pixels = [];
-                    for (let i = 0; i < imgData.length; i += 4) {
-                        pixels.push(imgData[i], imgData[i+1], imgData[i+2]);
-                    }
+                        const result = await classifier.classify(pixels);
+                        
+                        if (result.results) {
+                            result.results.forEach(res => {
+                                // Update the Bars like the official link
+                                const bar = document.getElementById(`bar-${res.label.replace(' ', '_')}`);
+                                if (bar) bar.style.width = (res.value * 100) + "%";
 
-                    const result = await classifier.classify(pixels);
-                    
-                    if (result.results && result.results.length > 0) {
-                        // Find the highest confidence result
-                        let top = result.results.reduce((a, b) => a.value > b.value ? a : b);
-                        let label = top.label.toUpperCase();
-                        let score = (top.value * 100).toFixed(0);
-
-                        // Update the UI so you can see what the AI thinks
-                        thinkingText.innerHTML = `Seeing <span class="highlight">${label}</span> (${score}%)`;
-
-                        // SCAN TRIGGER: Matches your 100% accuracy labels
-                        if (label !== "BACKGROUND" && top.value > 0.85) {
-                            if (label !== lastItem) {
-                                triggerScan(label);
-                            }
+                                // Trigger Scan logic
+                                if (res.label !== "BACKGROUND" && res.value > 0.85 && res.label !== lastItem) {
+                                    trigger(res.label);
+                                }
+                            });
                         }
                     }
+                    requestAnimationFrame(loop);
                 }
-                requestAnimationFrame(processFrame);
-            }
-            video.onplay = processFrame;
-        } catch (e) { 
-            mainStatus.innerText = "CAMERA ERROR"; 
-            console.error(e);
+                video.onplay = loop;
+            } catch (e) { document.getElementById('main-status').innerText = "CAMERA ERROR"; }
         }
-    }
 
-    function triggerScan(label) {
-        isPaused = true;
-        lastItem = label;
-        
-        // Visual Feedback
-        const flash = document.getElementById('flash-effect');
-        flash.style.opacity = "0.7";
-        setTimeout(() => flash.style.opacity = "0", 100);
+        function trigger(label) {
+            isPaused = true;
+            lastItem = label;
+            document.getElementById('flash-effect').style.opacity = "0.8";
+            setTimeout(() => {
+                document.getElementById('flash-effect').style.opacity = "0";
+                isPaused = false;
+            }, 2000);
+        }
 
-        // Add to history list
-        const list = document.getElementById('item-list');
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        list.innerHTML = `<div class="item"><span>${label}</span><span>${time}</span></div>` + list.innerHTML;
-        
-        // Wait 3 seconds before next scan
-        setTimeout(() => { isPaused = false; }, 3000);
-    }
-
-    window.onload = () => setTimeout(startApp, 1000);
-</script>
-
+        window.onload = start;
+    </script>
+</body>
+</html>
