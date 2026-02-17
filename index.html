@@ -1,54 +1,58 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ESP32-CAM AI Scanner</title>
+    <title>AI Scanner</title>
     <script>
+        // Fix for the LinkError seen in your previous screenshot
         window.env = { hardware_concurrency: () => navigator.hardwareConcurrency || 4 };
     </script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <style>
+        body { font-family: Arial; text-align: center; background: #1a1a1a; color: white; }
+        #container { position: relative; display: inline-block; margin-top: 20px; }
+        canvas { position: absolute; left: 0; top: 0; }
+        .status { color: #00ff00; font-weight: bold; margin: 15px; }
+    </style>
 </head>
 <body>
-    <h1>ESP32-CAM Object Classifier</h1>
-    
-    <div style="position: relative;">
+    <h1>ESP32-CAM AI Classifier</h1>
+    <div id="container">
         <img id="stream" src="http://192.168.0.100/stream" crossorigin="anonymous" width="400">
-        <canvas id="overlay" style="position: absolute; left: 0; top: 0;"></canvas>
+        <canvas id="canvas"></canvas>
     </div>
-
-    <h2 id="status">Loading AI Model...</h2>
-    <div id="predictions"></div>
+    <div class="status" id="status">Loading AI Model...</div>
 
     <script>
         const img = document.getElementById('stream');
         const status = document.getElementById('status');
-        const predictionsDiv = document.getElementById('predictions');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
 
-        // Load the COCO-SSD Model (Common Objects in Context)
-        async function loadModel() {
+        async function setupAI() {
             const model = await cocoSsd.load();
-            status.innerText = "AI Model Ready - Scanning...";
-            detectObjects(model);
+            status.innerText = "AI Active - Scanning Feed";
+            runDetection(model);
         }
 
-        async function detectObjects(model) {
-            // Predict what's in the image frame
+        async function runDetection(model) {
+            canvas.width = img.width;
+            canvas.height = img.height;
             const predictions = await model.detect(img);
             
-            predictionsDiv.innerHTML = "";
-            predictions.forEach(prediction => {
-                const p = document.createElement('p');
-                p.innerText = `${prediction.class} - ${Math.round(prediction.score * 100)}% confidence`;
-                predictionsDiv.appendChild(p);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            predictions.forEach(p => {
+                ctx.strokeStyle = "#00ff00";
+                ctx.lineWidth = 3;
+                ctx.strokeRect(...p.bbox);
+                ctx.fillStyle = "#00ff00";
+                ctx.font = "18px Arial";
+                ctx.fillText(`${p.class} (${Math.round(p.score * 100)}%)`, p.bbox[0], p.bbox[1] > 20 ? p.bbox[1] - 5 : 20);
             });
-
-            // Repeat the detection
-            requestAnimationFrame(() => detectObjects(model));
+            requestAnimationFrame(() => runDetection(model));
         }
 
-        img.onload = () => {
-            loadModel();
-        };
+        img.onload = setupAI;
     </script>
 </body>
 </html>
