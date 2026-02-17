@@ -4,7 +4,10 @@ class EdgeImpulseClassifier {
     }
 
     async init() {
-        if (typeof Module === 'undefined') return;
+        if (typeof Module === 'undefined') {
+            console.error("WASM Module missing. Check GitHub filenames.");
+            return;
+        }
         if (Module.runtimeInitialized) {
             this._initialized = true;
         } else {
@@ -16,7 +19,8 @@ class EdgeImpulseClassifier {
     async classify(pixels) {
         if (!this._initialized) return { results: [] };
         
-        // Convert the array to a format the WASM brain understands
+        // This is the "Edge Impulse" secret sauce: 
+        // Converting raw pixels into a signal the brain can read
         let res = Module.run_classifier(pixels, false);
         
         return {
