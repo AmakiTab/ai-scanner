@@ -1,58 +1,107 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>AI Scanner</title>
-    <script>
-        // Fix for the LinkError seen in your previous screenshot
-        window.env = { hardware_concurrency: () => navigator.hardwareConcurrency || 4 };
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Capstone AI</title>
+    
+    <script type="text/javascript" src="./edge-impulse-standalone.js"></script>
+    
     <style>
-        body { font-family: Arial; text-align: center; background: #1a1a1a; color: white; }
-        #container { position: relative; display: inline-block; margin-top: 20px; }
-        canvas { position: absolute; left: 0; top: 0; }
-        .status { color: #00ff00; font-weight: bold; margin: 15px; }
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #121212; color: white; margin: 0; padding: 20px; }
+        .card { background: #1e1e1e; padding: 25px; border-radius: 15px; display: inline-block; border: 1px solid #333; }
+        #container { position: relative; display: none; margin-top: 20px; }
+        img { width: 100%; max-width: 480px; border-radius: 10px; border: 3px solid #00ff88; }
+        .status { margin: 15px; color: #00ff88; font-weight: bold; }
+        .result-box { background: #252525; padding: 15px; margin-top: 15px; border-radius: 10px; }
+        input { padding: 12px; border-radius: 5px; border: 1px solid #444; background: #000; color: #fff; width: 200px; margin-bottom: 10px; }
+        button { padding: 12px 24px; border-radius: 5px; border: none; background: #00ff88; color: #000; font-weight: bold; cursor: pointer; }
+        button:disabled { background: #444; color: #888; cursor: not-allowed; }
+        #label { font-size: 2em; color: #00ff88; display: block; margin-top: 10px; }
     </style>
 </head>
 <body>
-    <h1>ESP32-CAM AI Classifier</h1>
-    <div id="container">
-        <img id="stream" src="http://192.168.0.100/stream" crossorigin="anonymous" width="400">
-        <canvas id="canvas"></canvas>
+
+    <h1>AI Vision System</h1>
+    
+    <div class="card" id="setup">
+        <div id="loaderStatus" style="color: #ffa500; margin-bottom: 15px;">⏳ Waiting for AI Library...</div>
+        <input type="text" id="ipInput" value="192.168.0.100">
+        <br>
+        <button id="startBtn" onclick="initSystem()" disabled>Initialize System</button>
     </div>
-    <div class="status" id="status">Loading AI Model...</div>
+
+    <div id="container">
+        <img id="cam" crossorigin="anonymous">
+        <div class="status" id="stat"></div>
+        <div class="result-box">
+            <span>Detection Result:</span>
+            <b id="label">---</b>
+            <p>Confidence: <span id="conf">0</span>%</p>
+        </div>
+    </div>
 
     <script>
-        const img = document.getElementById('stream');
-        const status = document.getElementById('status');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+        const stat = document.getElementById('stat');
+        const startBtn = document.getElementById('startBtn');
+        const loaderStatus = document.getElementById('loaderStatus');
+        let classifier;
 
-        async function setupAI() {
-            const model = await cocoSsd.load();
-            status.innerText = "AI Active - Scanning Feed";
-            runDetection(model);
-        }
+        // Auto-check for the library every 500ms
+        const checkLib = setInterval(() => {
+            if (typeof EdgeImpulseClassifier !== 'undefined') {
+                loaderStatus.innerText = "✅ AI Library Ready";
+                loaderStatus.style.color = "#00ff88";
+                startBtn.disabled = false;
+                clearInterval(checkLib);
+            }
+        }, 500);
 
-        async function runDetection(model) {
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const predictions = await model.detect(img);
+        async function initSystem() {
+            const ip = document.getElementById('ipInput').value;
+            document.getElementById('setup').style.display = 'none';
+            document.getElementById('container').style.display = 'inline-block';
             
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            predictions.forEach(p => {
-                ctx.strokeStyle = "#00ff00";
-                ctx.lineWidth = 3;
-                ctx.strokeRect(...p.bbox);
-                ctx.fillStyle = "#00ff00";
-                ctx.font = "18px Arial";
-                ctx.fillText(`${p.class} (${Math.round(p.score * 100)}%)`, p.bbox[0], p.bbox[1] > 20 ? p.bbox[1] - 5 : 20);
-            });
-            requestAnimationFrame(() => runDetection(model));
+            try {
+                stat.innerText = "Starting WASM Engine...";
+                classifier = new EdgeImpulseClassifier();
+                await classifier.init();
+                
+                stat.innerText = "Connecting to ESP32-CAM...";
+                // Connect to your local camera stream
+                document.getElementById('cam').src = `http://${ip}/stream`;
+                
+                runInference();
+            } catch (err) {
+                stat.innerText = "WASM Error: " + err.message;
+                console.error(err);
+            }
         }
 
-        img.onload = setupAI;
+        async function runInference() {
+            const img = document.getElementById('cam');
+            if (img.complete && img.naturalWidth > 0) {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = classifier.size[0];
+                    canvas.height = classifier.size[1];
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    const result = await classifier.classify(ctx.getImageData(0,0,canvas.width,canvas.height).data);
+                    
+                    if (result.results && result.results.length > 0) {
+                        const top = result.results.reduce((prev, curr) => prev.value > curr.value ? prev : curr);
+                        document.getElementById('label').innerText = top.label.toUpperCase();
+                        document.getElementById('conf').innerText = Math.round(top.value * 100);
+                        stat.innerText = "AI System Active";
+                    }
+                } catch (e) {
+                    console.log("Frame skip");
+                }
+            }
+            requestAnimationFrame(runInference);
+        }
     </script>
 </body>
 </html>
