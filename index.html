@@ -1,96 +1,54 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Scanner (Testing Mode)</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="edge-impulse-standalone.js"></script>
-    <script src="run-impulse.js"></script>
-    <style>
-        body { font-family: monospace; background: #000; color: #00ff00; text-align: center; margin: 0; overflow: hidden; }
-        #camera { width: 100%; height: 50vh; object-fit: cover; }
-        .ui { padding: 20px; background: #111; height: 50vh; }
-        .bar-container { margin: 15px 0; text-align: left; }
-        .bar-label { display: flex; justify-content: space-between; margin-bottom: 5px; }
-        .bar-outer { background: #333; height: 15px; width: 100%; border-radius: 10px; }
-        .bar-inner { background: #00ff00; height: 100%; width: 0%; transition: width 0.1s; }
-        #status { font-size: 1.2rem; margin-bottom: 20px; color: white; border-bottom: 1px solid #333; padding-bottom: 10px; }
-    </style>
+    <title>ESP32-CAM AI Scanner</title>
+    <script>
+        window.env = { hardware_concurrency: () => navigator.hardwareConcurrency || 4 };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 </head>
 <body>
-    <video id="camera" autoplay playsinline muted></video>
-    <div class="ui">
-        <div id="status">INITIALIZING AI...</div>
-        
-        <div class="bar-container">
-            <div class="bar-label"><span>DEODORANT</span><span id="val-DEODORANT">0%</span></div>
-            <div class="bar-outer"><div id="bar-DEODORANT" class="bar-inner"></div></div>
-        </div>
-
-        <div class="bar-container">
-            <div class="bar-label"><span>HOT SAUCE</span><span id="val-HOT_SAUCE">0%</span></div>
-            <div class="bar-outer"><div id="bar-HOT_SAUCE" class="bar-inner"></div></div>
-        </div>
-
-        <div class="bar-container">
-            <div class="bar-label"><span>BACKGROUND</span><span id="val-BACKGROUND">0%</span></div>
-            <div class="bar-outer"><div id="bar-BACKGROUND" class="bar-inner"></div></div>
-        </div>
+    <h1>ESP32-CAM Object Classifier</h1>
+    
+    <div style="position: relative;">
+        <img id="stream" src="http://192.168.0.100/stream" crossorigin="anonymous" width="400">
+        <canvas id="overlay" style="position: absolute; left: 0; top: 0;"></canvas>
     </div>
 
-    <canvas id="hiddenCanvas" width="160" height="160" style="display:none;"></canvas>
+    <h2 id="status">Loading AI Model...</h2>
+    <div id="predictions"></div>
 
     <script>
-        // Patch for the "hardware_concurrency" LinkError from your console
-        window.navigator.hardwareConcurrency = 4;
+        const img = document.getElementById('stream');
+        const status = document.getElementById('status');
+        const predictionsDiv = document.getElementById('predictions');
 
-        async function init() {
-            const video = document.getElementById('camera');
-            const canvas = document.getElementById('hiddenCanvas');
-            const ctx = canvas.getContext('2d');
-            const status = document.getElementById('status');
-
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-                video.srcObject = stream;
-
-                const classifier = new EdgeImpulseClassifier();
-                await classifier.init();
-                status.innerText = "SYSTEM READY: POINT AT OBJECT";
-
-                async function frameLoop() {
-                    if (video.readyState === 4) {
-                        ctx.drawImage(video, 0, 0, 160, 160);
-                        const imgData = ctx.getImageData(0, 0, 160, 160).data;
-                        
-                        // Convert RGBA to RGB pixels
-                        const pixels = [];
-                        for (let i = 0; i < imgData.length; i += 4) {
-                            pixels.push(imgData[i], imgData[i+1], imgData[i+2]);
-                        }
-
-                        const result = await classifier.classify(pixels);
-                        
-                        if (result.results) {
-                            result.results.forEach(res => {
-                                // Update bars and numbers
-                                const barId = "bar-" + res.label.replace(' ', '_');
-                                const valId = "val-" + res.label.replace(' ', '_');
-                                
-                                const barEl = document.getElementById(barId);
-                                const valEl = document.getElementById(valId);
-                                
-                                if (barEl) barEl.style.width = (res.value * 100) + "%";
-                                if (valEl) valEl.innerText = (res.value * 100).toFixed(0) + "%";
-                            });
-                        }
-                    }
-                    requestAnimationFrame(frameLoop);
-                }
-                video.onplay = frameLoop;
-            } catch (e) { status.innerText = "CAMERA BLOCKED"; }
+        // Load the COCO-SSD Model (Common Objects in Context)
+        async function loadModel() {
+            const model = await cocoSsd.load();
+            status.innerText = "AI Model Ready - Scanning...";
+            detectObjects(model);
         }
 
-        window.onload = () => setTimeout(init, 1000);
+        async function detectObjects(model) {
+            // Predict what's in the image frame
+            const predictions = await model.detect(img);
+            
+            predictionsDiv.innerHTML = "";
+            predictions.forEach(prediction => {
+                const p = document.createElement('p');
+                p.innerText = `${prediction.class} - ${Math.round(prediction.score * 100)}% confidence`;
+                predictionsDiv.appendChild(p);
+            });
+
+            // Repeat the detection
+            requestAnimationFrame(() => detectObjects(model));
+        }
+
+        img.onload = () => {
+            loadModel();
+        };
     </script>
 </body>
 </html>
