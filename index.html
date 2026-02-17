@@ -30,6 +30,9 @@
     <canvas id="hiddenCanvas" width="160" height="160" style="display:none;"></canvas>
 
     <script>
+        // CRITICAL FIX: This stops the "hardware_concurrency" error from your screenshot
+        window.navigator.hardwareConcurrency = window.navigator.hardwareConcurrency || 4;
+
         let lastItem = ""; 
         let isPaused = false;
 
@@ -50,17 +53,14 @@
 
                 async function processFrame() {
                     if (!isPaused && video.readyState === video.HAVE_ENOUGH_DATA) {
-                        // 1. Capture frame to 160x160 canvas
                         ctx.drawImage(video, 0, 0, 160, 160);
                         const imgData = ctx.getImageData(0, 0, 160, 160).data;
                         
-                        // 2. Convert RGBA to RGB for the AI
                         const pixels = [];
                         for (let i = 0; i < imgData.length; i += 4) {
                             pixels.push(imgData[i], imgData[i+1], imgData[i+2]);
                         }
 
-                        // 3. Run the AI with the merged debug logic
                         const result = await classifier.classify(pixels);
                         
                         if (result.results && result.results.length > 0) {
@@ -70,8 +70,7 @@
 
                             thinkingText.innerHTML = `Seeing <span class="highlight">${label}</span> (${score}%)`;
 
-                            // Trigger scan if product is detected with high confidence
-                            if (label !== "BACKGROUND" && top.value > 0.35) {
+                            if (label !== "BACKGROUND" && top.value > 0.85) {
                                 if (label !== lastItem) {
                                     triggerScan(label);
                                 }
@@ -94,7 +93,6 @@
             const list = document.getElementById('item-list');
             const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             list.innerHTML = `<div class="item"><span>${label}</span><span>${time}</span></div>` + list.innerHTML;
-            
             setTimeout(() => { isPaused = false; }, 2500);
         }
 
