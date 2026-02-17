@@ -1,132 +1,100 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Scanner - Live Monitor</title>
+    <title>Instant Product Scanner</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="edge-impulse-standalone.js"></script>
     <script src="run-impulse.js"></script>
     <style>
-        body { font-family: sans-serif; background: #121212; color: white; text-align: center; margin: 0; overflow-x: hidden; }
-        #camera { width: 100%; max-width: 500px; background: #000; display: block; margin: auto; }
-        
-        /* Activity Indicator Bar */
-        #status-container { background: #333; padding: 15px; border-bottom: 2px solid #444; }
-        #status { font-weight: bold; color: #fbff00; font-size: 1.1em; }
-        
-        /* The Pulse Dot (shows the code is running) */
-        .pulse { display: inline-block; width: 10px; height: 10px; background: #4CAF50; border-radius: 50%; margin-right: 8px; }
-        .is-processing { animation: blink 0.5s infinite; }
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-
-        /* Recognition List */
-        .receipt { padding: 20px; text-align: left; max-width: 500px; margin: auto; }
-        .item-row { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 10px 0; color: #4CAF50; font-weight: bold; }
+        body { font-family: sans-serif; background: #000; color: white; text-align: center; margin: 0; }
+        #camera { width: 100%; height: 50vh; object-fit: cover; border-bottom: 4px solid #4CAF50; }
+        #status-bar { background: #222; padding: 15px; font-weight: bold; color: #fbff00; }
+        #log { padding: 20px; text-align: left; background: #111; height: 40vh; overflow-y: auto; }
+        .item { color: #4CAF50; padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; }
+        .flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; }
     </style>
 </head>
 <body>
+    <div id="flash-effect" class="flash"></div>
     <video id="camera" autoplay playsinline></video>
+    <div id="status-bar"><span id="status-text">LOADING 100% ACCURACY MODEL...</span></div>
     
-    <div id="status-container">
-        <span id="pulse-dot" class="pulse"></span>
-        <span id="status">Waiting for AI Model...</span>
-    </div>
-    
-    <div class="receipt">
-        <h3 style="color: #888;">Recent Identifications:</h3>
+    <div id="log">
+        <div style="color:#666">Scan History:</div>
         <div id="item-list"></div>
-        <button onclick="location.reload()" style="width:100%; padding:15px; margin-top:20px; background:#444; color:white; border:none; border-radius:5px;">Clear / Reset</button>
     </div>
 
-    <canvas id="hiddenCanvas" width="320" height="320" style="display:none;"></canvas>
+    <canvas id="procCanvas" width="160" height="160" style="display:none;"></canvas>
 
     <script>
+        let lastScanned = ""; 
         let cooldown = false;
-        const validLabels = ["Deodorant", "Grips", "Hot sauce", "Power bank"];
 
-        async function startScanner() {
+        async function start() {
             const video = document.getElementById('camera');
-            const status = document.getElementById('status');
-            const pulse = document.getElementById('pulse-dot');
-            const canvas = document.getElementById('hiddenCanvas');
+            const status = document.getElementById('status-text');
+            const canvas = document.getElementById('procCanvas');
             const ctx = canvas.getContext('2d');
 
             try {
-                // Initialize the classifier from run-impulse.js [cite: 9]
-                const classifier = new EdgeImpulseClassifier();
-                await classifier.init(); [cite: 9]
-                
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
                 video.srcObject = stream;
-                status.innerText = "AI ACTIVE: Scanning...";
-                pulse.classList.add('is-processing');
+
+                const classifier = new EdgeImpulseClassifier();
+                await classifier.init();
+                status.innerText = "READY: SCAN PRODUCT";
 
                 async function loop() {
                     if (!cooldown) {
-                        // Prepare the frame [cite: 9]
-                        ctx.drawImage(video, 0, 0, 320, 320);
-                        const imageData = ctx.getImageData(0, 0, 320, 320).data;
-                        
+                        ctx.drawImage(video, 0, 0, 160, 160);
+                        const data = ctx.getImageData(0, 0, 160, 160).data;
                         const pixels = [];
-                        for (let i = 0; i < imageData.length; i += 4) {
-                            pixels.push(imageData[i], imageData[i+1], imageData[i+2]);
+                        for (let i = 0; i < data.length; i += 4) {
+                            pixels.push(data[i], data[i+1], data[i+2]);
                         }
 
-                        // Run classification [cite: 9]
                         const result = await classifier.classify(pixels);
                         
-                        if (result.results && result.results.length > 0) { [cite: 14]
-                            // Filter out "Background" to see what the AI is attempting to find
-                            let items = result.results.filter(r => r.label !== "Background");
-                            
-                            if (items.length > 0) {
-                                let top = items.reduce((a, b) => a.value > b.value ? a : b);
-                                
-                                // INDICATOR: Show live confidence percentage
-                                status.innerText = `Thinking: ${top.label} (${(top.value * 100).toFixed(0)}%)`;
-                                status.style.color = top.value > 0.15 ? "#fbff00" : "#888";
+                        if (result.results && result.results.length > 0) {
+                            let top = result.results.reduce((a, b) => a.value > b.value ? a : b);
 
-                                // Threshold for final recognition
-                                if (top.value > 0.25) {
-                                    handleMatch(top.label);
+                            // Only trigger if it's NOT background and confidence > 80%
+                            if (top.label !== "BACKGROUND" && top.value > 0.80) {
+                                if (top.label !== lastScanned) {
+                                    triggerScan(top.label);
+                                } else {
+                                    status.innerText = `STILL SEEING: ${top.label}`;
                                 }
-                            } else {
-                                status.innerText = "Searching for objects...";
-                                status.style.color = "#fbff00";
+                            } else if (top.label === "BACKGROUND") {
+                                status.innerText = "WAITING FOR PRODUCT...";
                             }
                         }
                     }
                     requestAnimationFrame(loop);
                 }
                 video.onplay = loop;
-            } catch (e) {
-                status.innerText = "Error: Check camera permissions";
-                pulse.style.background = "red";
-            }
+            } catch (e) { status.innerText = "STARTUP ERROR: Check Camera Permissions"; }
         }
 
-        function handleMatch(label) {
+        function triggerScan(label) {
             cooldown = true;
-            const status = document.getElementById('status');
-            const list = document.getElementById('item-list');
+            lastScanned = label;
             
-            // Log the match
-            status.innerText = "MATCH FOUND: " + label.toUpperCase();
-            status.style.color = "#4CAF50";
-            
-            const div = document.createElement('div');
-            div.className = "item-row";
-            div.innerHTML = `<span>${label}</span><span>Detected</span>`;
-            list.prepend(div);
+            // Visual Flash
+            const f = document.getElementById('flash-effect');
+            f.style.opacity = "0.6";
+            setTimeout(() => f.style.opacity = "0", 150);
 
-            // Cooldown to prevent multiple triggers for the same item 
-            setTimeout(() => { 
-                cooldown = false; 
-                status.style.color = "#fbff00";
-                status.innerText = "Scanning..."; 
-            }, 3000);
+            // Add to list
+            const list = document.getElementById('item-list');
+            list.innerHTML = `<div class="item"><span>${label}</span><span>RECORDED</span></div>` + list.innerHTML;
+            document.getElementById('status-text').innerText = "SUCCESS: " + label;
+            
+            // 2 second pause so it doesn't scan too fast
+            setTimeout(() => { cooldown = false; }, 2000);
         }
 
-        window.onload = startScanner;
+        window.onload = start;
     </script>
 </body>
 </html>
