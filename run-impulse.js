@@ -4,11 +4,7 @@ class EdgeImpulseClassifier {
     }
 
     async init() {
-        if (typeof Module === 'undefined') {
-            console.error("WASM Module missing.");
-            return;
-        }
-
+        if (typeof Module === 'undefined') return;
         if (Module.runtimeInitialized) {
             this._initialized = true;
         } else {
@@ -19,7 +15,10 @@ class EdgeImpulseClassifier {
 
     async classify(pixels) {
         if (!this._initialized) return { results: [] };
+        
+        // Convert the array to a format the WASM brain understands
         let res = Module.run_classifier(pixels, false);
+        
         return {
             results: res.classification.map(c => ({
                 label: c.label.toUpperCase(), 
