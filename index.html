@@ -1,21 +1,18 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Product Scanner</title>
+    <title>AI Product Face-ID</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="edge-impulse-standalone.js"></script>
-<script src="run-impulse.js"></script>
+    <script src="run-impulse.js"></script>
     <style>
-        body { font-family: sans-serif; background: #000; color: white; text-align: center; margin: 0; }
+        body { font-family: sans-serif; background: #0b0b0b; color: white; text-align: center; margin: 0; overflow: hidden; }
         #camera { width: 100%; height: 50vh; object-fit: cover; border-bottom: 2px solid #4CAF50; }
-        
         #status-bar { background: #1a1a1a; padding: 15px; border-bottom: 1px solid #333; }
         #brain-monitor { font-size: 0.8rem; color: #888; font-family: monospace; margin-top: 5px; }
-        .active-label { color: #fbff00; font-weight: bold; }
-
-        #log { padding: 20px; text-align: left; background: #000; height: 40vh; overflow-y: auto; }
-        .item { background: #222; padding: 10px; margin-bottom: 5px; border-radius: 4px; display: flex; justify-content: space-between; border-left: 5px solid #4CAF50; }
-        
+        .highlight { color: #fbff00; font-weight: bold; }
+        #log { padding: 20px; text-align: left; height: 40vh; overflow-y: auto; background: #000; }
+        .item { background: #1a1a1a; padding: 12px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; border-left: 4px solid #4CAF50; }
         .flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 100; transition: opacity 0.1s; }
     </style>
 </head>
@@ -24,12 +21,12 @@
     <video id="camera" autoplay playsinline></video>
     
     <div id="status-bar">
-        <div id="main-status" style="color: #4CAF50;">INITIALIZING ENGINE...</div>
+        <div id="main-status" style="color: #4CAF50; font-weight: bold;">INITIALIZING ENGINE...</div>
         <div id="brain-monitor">AI THINKING: <span id="thinking-text">...</span></div>
     </div>
     
     <div id="log">
-        <div style="color:#666; font-size: 0.7rem; margin-bottom: 10px;">SCAN HISTORY</div>
+        <div style="color:#555; font-size: 0.7rem; margin-bottom: 10px;">SCAN HISTORY</div>
         <div id="item-list"></div>
     </div>
 
@@ -47,16 +44,13 @@
             const ctx = canvas.getContext('2d');
 
             try {
-                // 1. Get Camera
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
                 video.srcObject = stream;
 
-                // 2. Load AI
                 const classifier = new EdgeImpulseClassifier();
                 await classifier.init();
-                mainStatus.innerText = "READY: POINT AT LABEL";
+                mainStatus.innerText = "READY: SCAN PRODUCT";
 
-                // 3. Process Frames
                 async function processFrame() {
                     if (!isPaused) {
                         ctx.drawImage(video, 0, 0, 160, 160);
@@ -73,13 +67,12 @@
                             let label = top.label.toUpperCase();
                             let score = (top.value * 100).toFixed(0);
 
-                            // Update Brain Monitor
-                            thinkingText.innerHTML = `Seeing <span class="active-label">${label}</span> (${score}%)`;
+                            thinkingText.innerHTML = `Seeing <span class="highlight">${label}</span> (${score}%)`;
 
-                            // Trigger logic for ALL CAPS labels from your matrix
+                            // Trigger logic using the ALL-CAPS labels from your matrix
                             if (label !== "BACKGROUND" && top.value > 0.85) {
                                 if (label !== lastItem) {
-                                    recordDiscovery(label);
+                                    triggerScan(label);
                                 }
                             }
                         }
@@ -87,36 +80,26 @@
                     requestAnimationFrame(processFrame);
                 }
                 video.onplay = processFrame;
-            } catch (err) {
-                mainStatus.innerText = "CAMERA ERROR: Check Permissions";
-                console.error(err);
-            }
+            } catch (e) { mainStatus.innerText = "CAMERA ERROR"; }
         }
 
-        function recordDiscovery(label) {
+        function triggerScan(label) {
             isPaused = true;
             lastItem = label;
             
-            // White Flash Feedback
             const flash = document.getElementById('flash-effect');
-            flash.style.opacity = "0.8";
-            setTimeout(() => flash.style.opacity = "0", 150);
+            flash.style.opacity = "0.7";
+            setTimeout(() => flash.style.opacity = "0", 100);
 
-            // Add to list
             const list = document.getElementById('item-list');
             const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            list.innerHTML = `
-                <div class="item">
-                    <span>${label}</span>
-                    <span style="color: #666; font-size: 0.8rem;">${time}</span>
-                </div>` + list.innerHTML;
+            list.innerHTML = `<div class="item"><span>${label}</span><span>${time}</span></div>` + list.innerHTML;
 
-           // Use this instead of window.onload
-        document.addEventListener('DOMContentLoaded', () => {
-            // Give the deferred scripts 500ms to "settle"
-            setTimeout(startApp, 500);
-        });
+            setTimeout(() => { isPaused = false; }, 2000);
+        }
+
+        // Delay start by 1 second to ensure WASM engine is ready
+        window.addEventListener('load', () => setTimeout(startApp, 1000));
     </script>
 </body>
 </html>
-
